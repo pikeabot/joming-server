@@ -28,10 +28,11 @@
 #include <mutex>
 #include <pthread.h>
 #include <fcntl.h>
+#include "gamephysics.hpp"
 
 
 using json = nlohmann::json;
-
+using namespace gamephysics;
 
 std::map<int, sockaddr_in> clients_socket_info;
 std::map<int, sockaddr_in> world_geoloc_info;
@@ -84,6 +85,10 @@ int main() {
                 std::cout << "Received: " << read_buffer << std::endl;
 //                if (ms % 150 == 0 ) {
                 sleep(1);
+                float x = rand() / static_cast<float>(RAND_MAX) * 300.0;
+                float y = rand() / static_cast<float>(RAND_MAX) * 300.0;
+                float z = rand() / static_cast<float>(RAND_MAX) * 300.0;
+                gamephysics::PositionVector p = {x, y, z };
                     char write_buffer[1024] = "ACK";
                     send(client_socket, write_buffer, strlen(write_buffer), 0);
                     std::cout << "Sending message to: " << client_socket << std::endl;
