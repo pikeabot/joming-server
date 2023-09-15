@@ -24,6 +24,16 @@ namespace gamephysics {
         float y;
         float z;
     };
+
+    struct MotionVector {
+        uint64_t t;
+        float xp;
+        float yp;
+        float zp;
+        float xv;
+        float yv;
+        float zv;
+    };
     void to_json(json& j, const PositionVector& p);
     void from_json(const json& j, PositionVector& p);
     void to_json(json& j, const VelocityVector& p);

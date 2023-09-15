@@ -33,11 +33,13 @@
 
 using json = nlohmann::json;
 using namespace gamephysics;
+using namespace std::chrono;
 
 std::map<int, sockaddr_in> clients_socket_info;
-std::map<int, sockaddr_in> world_geoloc_info;
+std::map<int, std::string> world_geoloc_info;
+std::string world_data;
 
-std::mutex client_info_mutex;
+std::mutex mtx;
 int server_socket;
 sockaddr_in server_address;
 int count = 0;
@@ -57,10 +59,59 @@ void *client_listener_handler(void *arg) {
     }
 }
 
+void *client_reader_handler(void *arg) {
+    while (true) {
+        for (auto const& [client_socket, client_address] : clients_socket_info) {
+            mtx.lock();
+            char read_buffer[1024] = {0};
+            read(client_socket, read_buffer, sizeof(read_buffer));
+            std::cout << "Received: " << read_buffer << std::endl;
+            std::string data = read_buffer;
+            world_geoloc_info[client_socket] = data;
+            mtx.unlock();
+            sleep(1);
+        }
+    }
+}
+
+void *client_writer_handler(void *arg) {
+    float heartbeat = 1000.0;
+    uint64_t ms0 = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    // get time as close to xxxxx0000 as possible
+    float ms_to_start = 1000 - ms0 % 1000;
+    ms0 = ms0 + ms_to_start;
+    while (true) {
+        uint64_t ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        if (ms - ms0 >=  heartbeat) {
+            mtx.lock();
+            for (auto const& [client_socket, client_address] : clients_socket_info) {
+                char write_buffer[1024] = {0};
+                std::strcpy(write_buffer, world_data.c_str());
+                send(client_socket, write_buffer, strlen(write_buffer), 0);
+                std::cout << "Sending message to: " << client_socket << std::endl;
+            }
+            mtx.unlock();
+        }
+        ms0 = ms;
+    }
+}
+
+void *calculate_motion_handler(void *arg) {
+    while (true) {
+        sleep(.5); // not calculated constantly but faster than the heartbeat
+        uint64_t ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        json data = {};
+        for (auto const& [client_socket, motion_vector] : world_geoloc_info) {
+            mtx.lock();
+            data[client_socket] = motion_vector;
+            world_data = to_string(data);
+            mtx.unlock();
+        }
+    }
+}
+
 
 int main() {
-    using namespace std::chrono;
-
     server_socket = socket(AF_INET, SOCK_STREAM, 0);
 
     server_address.sin_family = AF_INET;
@@ -74,28 +125,34 @@ int main() {
     pthread_t client_listener_t;
     pthread_create(&client_listener_t, NULL, client_listener_handler, {});
 
+    pthread_t client_reader_t;
+    pthread_create(&client_reader_t, NULL, client_reader_handler, {});
+
+//    pthread_t client_writer_t;
+//    pthread_create(&client_writer_t, NULL, client_writer_handler, {});
+
+    pthread_t calculate_motion_t;
+    pthread_create(&calculate_motion_t, NULL, calculate_motion_handler, {});
+    
     while(true) {
-        uint64_t ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        //        if (ms % 150 == 0 ) {
-            for (auto const& [client_socket, client_address] : clients_socket_info) {
-                char read_buffer[1024] = {0};
-                read(client_socket, read_buffer, sizeof(read_buffer));
-//                json j = json::parse(buffer);
-//                std::cout << "Received: " << j.at("y") << std::endl;
-                std::cout << "Received: " << read_buffer << std::endl;
-//                if (ms % 150 == 0 ) {
-                sleep(1);
-                float x = rand() / static_cast<float>(RAND_MAX) * 300.0;
-                float y = rand() / static_cast<float>(RAND_MAX) * 300.0;
-                float z = rand() / static_cast<float>(RAND_MAX) * 300.0;
-                gamephysics::PositionVector p = {x, y, z };
-                    char write_buffer[1024] = "ACK";
+        float heartbeat = 1000.0;
+        uint64_t ms0 = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        // get time as close to xxxxx0000 as possible
+        float ms_to_start = 1000 - ms0 % 1000;
+        ms0 = ms0 + ms_to_start;
+        while (true) {
+            uint64_t ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+            if (ms - ms0 >=  heartbeat) {
+                for (auto const& [client_socket, client_address] : clients_socket_info) {
+                    char write_buffer[1024] = {0};
+                    std::strcpy(write_buffer, world_data.c_str());
                     send(client_socket, write_buffer, strlen(write_buffer), 0);
                     std::cout << "Sending message to: " << client_socket << std::endl;
-//                }
+                }
             }
-//        }
-    }
+            ms0 = ms;
+        }
+}
 
     return 0;
 }
